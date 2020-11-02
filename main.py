@@ -9,9 +9,12 @@ import pandas
 from mwtemplates import TemplateEditor
 
 import matplotlib.pyplot as plt
+from sklearn.neighbors import KNeighborsRegressor
 from sktime.forecasting.arima import AutoARIMA
+from sktime.forecasting.compose import ReducedRegressionForecaster, TransformedTargetForecaster
 from sktime.forecasting.exp_smoothing import ExponentialSmoothing
 from sktime.forecasting.trend import PolynomialTrendForecaster
+from sktime.transformers.single_series.detrend import Detrender, Deseasonalizer
 
 DATA_PATH = pathlib.Path(__file__).parent.joinpath('data')
 PLOTS_PATH = pathlib.Path(__file__).parent.joinpath('plots')
@@ -57,9 +60,14 @@ def read_csv(f):
     ).astype({'Total confirmed': 'int32'})
 
 
-def learn(series):
-    model = AutoARIMA(sp=7)
-    model.fit(series[:-30])
+def learn(series_data):
+    model = TransformedTargetForecaster([
+        ("deseasonalise", Deseasonalizer(model="multiplicative", sp=7)),
+        ("detrend", Detrender(forecaster=PolynomialTrendForecaster(degree=4))),
+        ("forecast", PolynomialTrendForecaster(degree=4))
+    ])
+    # model = ExponentialSmoothing(sp=21)
+    model.fit(series_data[:-14])
     return model
 
 
@@ -67,8 +75,8 @@ def build_training_data():
     return data['Total confirmed'].diff().asfreq('1D', method='ffill').dropna() + 1
 
 
-def predict():
-    fh = numpy.arange(30) + 1
+def predict(model):
+    fh = numpy.arange(120) + 1
     return model.predict(fh).rename('Predicted Total confirmed')
 
 
@@ -76,6 +84,7 @@ def build_plot(series, predicted):
     plt.figure()
     series.plot(color='g')
     predicted.plot(color='r')
+
     plt.legend()
     PLOTS_PATH.mkdir(parents=True, exist_ok=True)
     plot_file = PLOTS_PATH.joinpath(datetime.today().strftime('%y_%m_%d.png'))
@@ -86,6 +95,6 @@ def build_plot(series, predicted):
 if __name__ == '__main__':
     data = parse_wiki()
     series = build_training_data()
-    model = learn(series)
-    predicted = predict()
+    model_v = learn(series)
+    predicted = predict(model_v)
     build_plot(series, predicted)
